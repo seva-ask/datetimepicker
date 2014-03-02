@@ -1,6 +1,7 @@
 package com.fourmob.datetimepicker.date;
 
 import android.app.Activity;
+import android.content.Context;
 import android.content.res.Resources;
 import android.os.Bundle;
 import android.os.SystemClock;
@@ -28,7 +29,9 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Locale;
 
-public class DatePickerDialog extends DialogFragment implements View.OnClickListener, DatePickerController {
+import ru.car2car.droid.dialogs.fragments.base.BaseDialogFragment;
+
+public class DatePickerDialog extends BaseDialogFragment<Calendar> implements View.OnClickListener, DatePickerController {
 
     private static final String KEY_SELECTED_YEAR = "year";
     private static final String KEY_SELECTED_MONTH = "month";
@@ -57,7 +60,6 @@ public class DatePickerDialog extends DialogFragment implements View.OnClickList
 
 	private final Calendar mCalendar = Calendar.getInstance();
     private HashSet<OnDateChangedListener> mListeners = new HashSet<OnDateChangedListener>();
-    private OnDateSetListener mCallBack;
 
     private AccessibleDateAnimator mAnimator;
     private boolean mDelayAnimation = true;
@@ -85,6 +87,19 @@ public class DatePickerDialog extends DialogFragment implements View.OnClickList
 
     private boolean mVibrate = true;
 
+    public static Bundle createArguments(int year, int month, int day, boolean vibrate) {
+        if (year > MAX_YEAR)
+            throw new IllegalArgumentException("year end must < " + MAX_YEAR);
+        if (year < MIN_YEAR)
+            throw new IllegalArgumentException("year end must > " + MIN_YEAR);
+        Bundle bundle = new Bundle();
+        bundle.putInt(KEY_SELECTED_YEAR, year);
+        bundle.putInt(KEY_SELECTED_MONTH, month);
+        bundle.putInt(KEY_SELECTED_DAY, day);
+        bundle.putBoolean(KEY_VIBRATE, vibrate);
+        return bundle;
+    }
+
 	private void adjustDayInMonthIfNeeded(int month, int year) {
         int day = mCalendar.get(Calendar.DAY_OF_MONTH);
         int daysInMonth = Utils.getDaysInMonth(month, year);
@@ -92,21 +107,6 @@ public class DatePickerDialog extends DialogFragment implements View.OnClickList
             mCalendar.set(Calendar.DAY_OF_MONTH, daysInMonth);
         }
 	}
-
-    public DatePickerDialog() {
-        // Empty constructor required for dialog fragment. DO NOT REMOVE
-    }
-
-	public static DatePickerDialog newInstance(OnDateSetListener onDateSetListener, int year, int month, int day) {
-		return newInstance(onDateSetListener, year, month, day, true);
-	}
-
-	public static DatePickerDialog newInstance(OnDateSetListener onDateSetListener, int year, int month, int day, boolean vibrate) {
-		DatePickerDialog datePickerDialog = new DatePickerDialog();
-		datePickerDialog.initialize(onDateSetListener, year, month, day, vibrate);
-		return datePickerDialog;
-	}
-
 
 	public void setVibrate(boolean vibrate) {
 		mVibrate = vibrate;
@@ -206,18 +206,6 @@ public class DatePickerDialog extends DialogFragment implements View.OnClickList
 		return new SimpleMonthAdapter.CalendarDay(mCalendar);
 	}
 
-	public void initialize(OnDateSetListener onDateSetListener, int year, int month, int day, boolean vibrate) {
-		if (year > MAX_YEAR)
-			throw new IllegalArgumentException("year end must < " + MAX_YEAR);
-		if (year < MIN_YEAR)
-			throw new IllegalArgumentException("year end must > " + MIN_YEAR);
-		mCallBack = onDateSetListener;
-		mCalendar.set(Calendar.YEAR, year);
-		mCalendar.set(Calendar.MONTH, month);
-		mCalendar.set(Calendar.DAY_OF_MONTH, day);
-		mVibrate = vibrate;
-	}
-
 	public void onClick(View view) {
 		tryVibrate();
 		if (view.getId() == R.id.date_picker_year)
@@ -226,20 +214,27 @@ public class DatePickerDialog extends DialogFragment implements View.OnClickList
 			setCurrentView(MONTH_AND_DAY_VIEW);
 	}
 
-	public void onCreate(Bundle bundle) {
-		super.onCreate(bundle);
+	public void onCreate(Bundle savedInstanceState) {
+		super.onCreate(savedInstanceState);
 		Activity activity = getActivity();
 		activity.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN);
-		mVibrator = ((Vibrator) activity.getSystemService("vibrator"));
-		if (bundle != null) {
-			mCalendar.set(Calendar.YEAR, bundle.getInt(KEY_SELECTED_YEAR));
-			mCalendar.set(Calendar.MONTH, bundle.getInt(KEY_SELECTED_MONTH));
-			mCalendar.set(Calendar.DAY_OF_MONTH, bundle.getInt(KEY_SELECTED_DAY));
-			mVibrate = bundle.getBoolean(KEY_VIBRATE);
-		}
+		mVibrator = ((Vibrator) activity.getSystemService(Context.VIBRATOR_SERVICE));
+		if (savedInstanceState != null) {
+            initializeFromBundle(savedInstanceState);
+		} else {
+            initializeFromBundle(getArguments() != null ? getArguments() : new Bundle());
+        }
 	}
 
-	public View onCreateView(LayoutInflater layoutInflater, ViewGroup parent, Bundle bundle) {
+    private void initializeFromBundle(Bundle bundle) {
+        final Calendar calendar = Calendar.getInstance();
+        mCalendar.set(Calendar.YEAR, bundle.getInt(KEY_SELECTED_YEAR, calendar.get(Calendar.YEAR)));
+        mCalendar.set(Calendar.MONTH, bundle.getInt(KEY_SELECTED_MONTH, calendar.get(Calendar.MONTH)));
+        mCalendar.set(Calendar.DAY_OF_MONTH, bundle.getInt(KEY_SELECTED_DAY, calendar.get(Calendar.DAY_OF_MONTH)));
+        mVibrate = bundle.getBoolean(KEY_VIBRATE, true);
+    }
+
+    public View onCreateView(LayoutInflater layoutInflater, ViewGroup parent, Bundle bundle) {
 		getDialog().getWindow().requestFeature(Window.FEATURE_NO_TITLE);
 
 		View view = layoutInflater.inflate(R.layout.date_picker_dialog, null);
@@ -291,10 +286,7 @@ public class DatePickerDialog extends DialogFragment implements View.OnClickList
 		mDoneButton.setOnClickListener(new View.OnClickListener() {
 			public void onClick(View view) {
 				tryVibrate();
-				if (mCallBack != null) {
-					mCallBack.onDateSet(DatePickerDialog.this, mCalendar.get(Calendar.YEAR), mCalendar.get(Calendar.MONTH), mCalendar.get(Calendar.DAY_OF_MONTH));
-                }
-                dismiss();
+				returnResult(mCalendar);
 			}
 		});
 
@@ -364,10 +356,6 @@ public class DatePickerDialog extends DialogFragment implements View.OnClickList
         }
 	}
 
-	public void setOnDateSetListener(OnDateSetListener onDateSetListener) {
-		mCallBack = onDateSetListener;
-	}
-
 	public void setYearRange(int minYear, int maxYear) {
 		if (maxYear <= minYear)
 			throw new IllegalArgumentException("Year end must be larger than year start");
@@ -395,7 +383,4 @@ public class DatePickerDialog extends DialogFragment implements View.OnClickList
 		public abstract void onDateChanged();
 	}
 
-	public static abstract interface OnDateSetListener {
-		public abstract void onDateSet(DatePickerDialog datePickerDialog, int year, int month, int day);
-	}
 }
